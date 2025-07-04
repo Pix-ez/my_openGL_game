@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -e  # Exit on error
 
-# Create and enter build folder
+# Clean and create build directory
+rm -rf build-linux
 mkdir -p build-linux
 cd build-linux
+
 
 # Configure CMake for native Linux build
 cmake .. \
