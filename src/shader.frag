@@ -1,11 +1,13 @@
 #version 420 core
+
 in vec2 TexCoord;
 in vec3 ourColor;
-// uniform vec4 ourColor;
+
 out vec4 FragColor;
 
 uniform sampler2D texture1;
 uniform sampler2D texture2;
+
 void main()
 {
    // Normalize vertex position to [0, 1] range for color
