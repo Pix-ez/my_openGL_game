@@ -33,7 +33,16 @@ InputController inputController;
 
 int main(int argc, char *argv[]){
 
-    
+    // --- GET THE BASE PATH TO THE EXECUTABLE ---
+    const char* basePath_c = SDL_GetBasePath();
+    if (!basePath_c) {
+        std::cerr << "Error getting base path: " << SDL_GetError() << std::endl;
+        return 1;
+    }
+    std::string basePath(basePath_c);
+    std::cout<< basePath.c_str() <<"\n";
+
+
     if(!SDL_Init(SDL_INIT_VIDEO)){
         std::cerr << "Failed to initialize SDL: " << SDL_GetError() << std::endl;
         return 1;
@@ -122,7 +131,16 @@ int main(int argc, char *argv[]){
     bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
     float rotation_angle = 2.0f;
+    float lightIntensity = 1.0f;
+    glm::vec3 lightColor = glm::vec3(1.0f, 1.0f, 1.0f);
     // float camera_fov = 45.0f;
+    // bool enable_mouse = true;
+    // static bool lastEnableMouse = !enable_mouse;
+
+    bool enable_mouse = false;  // false = gameplay mode
+    bool last_mouse_enabled = true; // force initial mode setup
+    bool escapePressed = false;
+    bool was_mouse_enabled_last_frame = true;
 
     // // camera
     // glm::vec3 cameraPos   = glm::vec3(0.0f, 0.0f,  3.0f);
@@ -134,54 +152,21 @@ int main(int argc, char *argv[]){
     // float lastFrame = 0.0f;
 
     glEnable(GL_DEPTH_TEST);
-    //disable mouse cursor
-    SDL_HideCursor();
-    SDL_SetWindowRelativeMouseMode(window, true);
-
-
-    //compile our shaders
-    //vertex shader
-    // unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    // glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
-    // glCompileShader(vertexShader);
-    // //check for shader compile errors
-    // int sucess;
-    // char infolog[512];
-    // glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &sucess);
-    // if(!sucess){
-    //     glGetShaderInfoLog(vertexShader, 512, NULL, infolog);
-    //     std::cerr << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infolog << std::endl;
-    // }
-
-    // //fragment shader
-    // unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    // glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
-    // glCompileShader(fragmentShader);
-    // //check error
-    // glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &sucess);
-    // if(!sucess){
-    //     glGetShaderInfoLog(fragmentShader, 512, NULL, infolog);
-    //     std::cerr << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infolog << std::endl;
-    // }
-
-    // //link shaders
-    // unsigned int shaderProgram = glCreateProgram();
-    // glAttachShader(shaderProgram, vertexShader);
-    // glAttachShader(shaderProgram, fragmentShader);
-    // glLinkProgram(shaderProgram);
-    // //check error
-    // glGetProgramiv(shaderProgram, GL_LINK_STATUS, &sucess);
-    // if(!sucess){
-    //     glGetProgramInfoLog(shaderProgram, 512, NULL, infolog);
-    //     std::cerr << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infolog << std::endl;
-    // }
-    // //clearn up shader
-    // glDeleteShader(vertexShader);
-    // glDeleteShader(fragmentShader);
-
-    //user our custom shader
     
-    Shader ourShader("src/shader.vert", "src/shader.frag");
+
+
+  
+    //user our custom shader
+    std::string vertPath = basePath + "shader/shader.vert";
+    std::string fragPath = basePath + "shader/shader.frag";
+    Shader ourShader(vertPath.c_str(), fragPath.c_str());
+
+
+    std::string lightCube_vert = basePath + "shader/light_cube.vert";
+    std::string lightCube_frag = basePath + "shader/light_cube.frag";
+    Shader lightCubeShader(lightCube_vert.c_str(), lightCube_frag.c_str());
+    
+    // Shader ourShader("src/shader.vert", "src/shader.frag");
     //vertex data and buffers
     // The OG traingle 
     // float vertices[] = {
@@ -331,6 +316,18 @@ int main(int argc, char *argv[]){
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(2);
 
+
+    // second, configure the light's VAO (VBO stays the same; the vertices are the same for the light object which is also a 3D cube)
+    unsigned int lightCubeVAO;
+    glGenVertexArrays(1, &lightCubeVAO);
+    glBindVertexArray(lightCubeVAO);
+
+    // we only need to bind to the VBO (to link it with glVertexAttribPointer), no need to fill it; the VBO's data already contains all we need (it's already bound, but we do it again for educational purposes)
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
     //generate texture
     unsigned int texture1, texture2;
     //texture1
@@ -346,7 +343,9 @@ int main(int argc, char *argv[]){
     //load image
     int width, height, nChannels;
     stbi_set_flip_vertically_on_load(true);
-    unsigned char* data = stbi_load("textures/brick_wall_diffuse.jpg", &width, &height, &nChannels, 0);
+    // unsigned char* data = stbi_load("textures/brick_wall_diffuse.jpg", &width, &height, &nChannels, 0);
+    std::string texturePath = basePath + "textures/brick_wall_diffuse.jpg";
+    unsigned char* data = stbi_load(texturePath.c_str(), &width, &height, &nChannels, 0);
     if(data){
         printf("loaded texture %dx%d with %d channels\n", width, height, nChannels);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
@@ -369,7 +368,9 @@ int main(int argc, char *argv[]){
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     //load image
     stbi_set_flip_vertically_on_load(true);
-    data = stbi_load("textures/cat.png", &width, &height, &nChannels, 0);
+    // data = stbi_load("textures/cat.png", &width, &height, &nChannels, 0);
+    texturePath = basePath + "textures/cat.png";
+    data = stbi_load(texturePath.c_str(), &width, &height, &nChannels, 0);
     if(data){
         printf("loaded texture %dx%d with %d channels\n", width, height, nChannels);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
@@ -416,6 +417,8 @@ int main(int argc, char *argv[]){
     
     SDL_Event event;
     while(is_running){
+        escapePressed = false;
+
         Uint64 currentCounter = SDL_GetPerformanceCounter();
         Uint64 deltaCounter = currentCounter - prevCounter;
         prevCounter = currentCounter;
@@ -471,11 +474,11 @@ int main(int argc, char *argv[]){
             // }
 
 
-            // //mouse position
-            if (event.type == SDL_EVENT_MOUSE_MOTION) {
-                
+            if (event.type == SDL_EVENT_KEY_DOWN && event.key.repeat == 0) {
+                if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
+                    escapePressed = true;
+                }
             }
-
 
 
 
@@ -484,28 +487,99 @@ int main(int argc, char *argv[]){
         }
 
 
-        if(inputController.IsKeyDown(SDL_SCANCODE_W)) camera.ProcessKeyboard(FORWARD, deltaTime);
-        if(inputController.IsKeyDown(SDL_SCANCODE_A)) camera.ProcessKeyboard(LEFT, deltaTime);
-        if(inputController.IsKeyDown(SDL_SCANCODE_S)) camera.ProcessKeyboard(BACKWARD, deltaTime);
-        if(inputController.IsKeyDown(SDL_SCANCODE_D)) camera.ProcessKeyboard(RIGHT, deltaTime);
+        
+        //enable/disable mouse cursor on pressing escape key
+        // if(inputController.WasKeyPressed(SDL_SCANCODE_ESCAPE)){
+        //     enable_mouse = !enable_mouse;
+        //     // std::cout << "escape key pressed" << std::endl;
+        // } 
 
-        float xpos = inputController.GetMouseX();
-        float ypos = inputController.GetMouseY();
+        //disable mouse cursor on pressing left mouse button
+        // if(inputController.WasMousePressed(0)) {
+        //     enable_mouse = false;
+        //     // std::cout << "left mouse button pressed" << std::endl;
+        // }
 
-        if(firstMouse) {
+        if (escapePressed) {
+            enable_mouse = !enable_mouse;
+            std::cout << "ESC pressed. enable_mouse = " << enable_mouse << "\n";
+        }
+        
+
+        //disable mouse cursor
+        // if(!enable_mouse){
+        //     SDL_HideCursor();
+        //     SDL_SetWindowRelativeMouseMode(window, true);
+
+        //     //if mouse disable capture keyboard input
+        //     (void)SDL_GetRelativeMouseState(nullptr, nullptr); //to avoid abrupt mouse and camera movement
+
+        //     if(inputController.IsKeyDown(SDL_SCANCODE_W)) camera.ProcessKeyboard(FORWARD, deltaTime);
+        //     if(inputController.IsKeyDown(SDL_SCANCODE_A)) camera.ProcessKeyboard(LEFT, deltaTime);
+        //     if(inputController.IsKeyDown(SDL_SCANCODE_S)) camera.ProcessKeyboard(BACKWARD, deltaTime);
+        //     if(inputController.IsKeyDown(SDL_SCANCODE_D)) camera.ProcessKeyboard(RIGHT, deltaTime);
+
+        //     float xpos = inputController.GetMouseX();
+        //     float ypos = inputController.GetMouseY();
+
+        //     if(firstMouse) {
+        //         lastX = xpos;
+        //         lastY = ypos;
+        //         firstMouse = false;
+        //     }
+
+        //     float xoffset = xpos - lastX;
+        //     float yoffset = lastY - ypos; // reversed since y-coordinates go from bottom to top
+
+        //     lastX = xpos;
+        //     lastY = ypos;
+
+        //     camera.ProcessMouseMovement(xoffset, yoffset);
+        // }else{
+        //     SDL_ShowCursor();
+        //     SDL_SetWindowRelativeMouseMode(window, false);
+        //     firstMouse = true;
+        // }
+        
+        if (enable_mouse != last_mouse_enabled) {
+            if (enable_mouse) {
+                SDL_ShowCursor();
+                SDL_SetWindowRelativeMouseMode(window, false);
+                firstMouse = true;
+            } else {
+                SDL_HideCursor();
+                SDL_SetWindowRelativeMouseMode(window, true);
+                SDL_GetRelativeMouseState(nullptr, nullptr); // flush input buffer
+            }
+            last_mouse_enabled = enable_mouse;
+        }
+            
+        if (!enable_mouse) {
+            // Keyboard
+            if (inputController.IsKeyDown(SDL_SCANCODE_W)) camera.ProcessKeyboard(FORWARD, deltaTime);
+            if (inputController.IsKeyDown(SDL_SCANCODE_A)) camera.ProcessKeyboard(LEFT, deltaTime);
+            if (inputController.IsKeyDown(SDL_SCANCODE_S)) camera.ProcessKeyboard(BACKWARD, deltaTime);
+            if (inputController.IsKeyDown(SDL_SCANCODE_D)) camera.ProcessKeyboard(RIGHT, deltaTime);
+
+            // Mouse movement
+            float xpos = inputController.GetMouseX();
+            float ypos = inputController.GetMouseY();
+
+            if (firstMouse) {
+                lastX = xpos;
+                lastY = ypos;
+                firstMouse = false;
+            }
+
+            float xoffset = xpos - lastX;
+            float yoffset = lastY - ypos; // reversed
+
             lastX = xpos;
             lastY = ypos;
-            firstMouse = false;
+
+            camera.ProcessMouseMovement(xoffset, yoffset);
         }
 
-        float xoffset = xpos - lastX;
-        float yoffset = lastY - ypos; // reversed since y-coordinates go from bottom to top
-
-        lastX = xpos;
-        lastY = ypos;
-
-        camera.ProcessMouseMovement(xoffset, yoffset);
-        
 
         // Start the Dear ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
@@ -524,8 +598,12 @@ int main(int argc, char *argv[]){
             // ImGui::Checkbox("Another Window", &show_another_window);
 
             ImGui::SliderFloat("Roation angle ", &rotation_angle, 1.0f, 5.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-            // ImGui::SliderFloat("Camera FOV", &camera.FOV, 45.0f, 120.0f);  
+            // ImGui::SliderFloat("Camera FOV", &camera.FOV, 45.0f, 120.0f);
+            
+            ImGui::SliderFloat("Light intensity ", &lightIntensity, 1.0f, 5.0f);
             ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
+            //get color from imgu and set as lightColor as glm::vec3
+            ImGui::ColorEdit3("light color", (float*)&lightColor);
 
             // if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
             //     counter++;
@@ -562,17 +640,36 @@ int main(int argc, char *argv[]){
 
 
         //Activate Shader
-        ourShader.use();
+        
+        glm::mat4 projection  = glm::mat4(1.0f);
+        glm::mat4 model = glm::mat4(1.0f);
+        glm::mat4 view  = glm::mat4(1.0f);
+        
+        // //render light cube
+        lightCubeShader.use();
 
+        // view/projection transformations
+        projection = glm::perspective(glm::radians(camera.FOV), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+        view = camera.GetViewMatrix();
+        lightCubeShader.setMat4("projection", projection);
+        lightCubeShader.setMat4("view", view);
+
+        // world transformation
+        lightCubeShader.setMat4("model", model);
+
+        // render the cube
+        glBindVertexArray(lightCubeVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+
+        //render cubes
+        ourShader.use();
 
         //create transformations
         // glm::mat4 model = glm::mat4(1.0f); //make sure intinal matrix is identity
-        // glm::mat4 view  = glm::mat4(1.0f);
-        glm::mat4 projection  = glm::mat4(1.0f);
         // model = glm::rotate(model, glm::radians(rotation_angle_z), glm::vec3(1.0f, 0.0f, 0.0f));
         // view  = glm::translate(view, glm::vec3(0.0f, 0.0f, -3.0f)); //pulling camera -3 in z 
 
-        std::cout << camera.getFOV() << std::endl;
+        // std::cout << camera.getFOV() << std::endl;
         projection = glm::perspective(glm::radians(camera.FOV), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
 
         
@@ -581,8 +678,14 @@ int main(int argc, char *argv[]){
         ourShader.setMat4("projection", projection);
 
         // camera/view transformation
-        glm::mat4 view = camera.GetViewMatrix();
+        view = camera.GetViewMatrix();
         ourShader.setMat4("view", view);
+        ourShader.setVec3("objectColor", 1.0f, 0.5f, 0.31f);
+
+        
+
+        ourShader.setVec3("lightColor", lightColor);
+        ourShader.setFloat("lightIntensity",  lightIntensity);
 
         // camera/view transformation
         // glm::mat4 view = glm::mat4(1.0f); // make sure to initialize matrix to identity matrix first
@@ -622,7 +725,7 @@ int main(int argc, char *argv[]){
         for (unsigned int i = 0; i < 10; i++)
         {
             // calculate the model matrix for each object and pass it to shader before drawing
-            glm::mat4 model = glm::mat4(1.0f);
+            // glm::mat4 model = glm::mat4(1.0f);
             model = glm::translate(model, cubePositions[i]);
             float angle;
             if(i==0){
@@ -635,6 +738,9 @@ int main(int argc, char *argv[]){
             ourShader.setMat4("model", model);
 
             glDrawArrays(GL_TRIANGLES, 0, 36);
+
+            // std::cout << "angle: " << angle << std::endl;
+            
         }
 
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
