@@ -122,6 +122,7 @@ find_package(SDL3 REQUIRED CONFIG)
 add_executable(${PROJECT_NAME}
     src/main.cpp
     src/shader.cpp
+    src/utils.cpp
     # Add camera.cpp, inputController.cpp etc. here
 )
 
