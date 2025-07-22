@@ -4,3 +4,5 @@ vendor/
 .vscode/
 cmd.txt
 imgui.ini
+resources/models/.gitkeep
+resources/models/*

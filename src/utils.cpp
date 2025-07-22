@@ -1,6 +1,6 @@
 #define STB_IMAGE_IMPLEMENTATION
-#include "utils.h"
-#include "stb_image.h"
+#include <core/utils.h>
+#include <stb_image.h>
 #include <iostream>
 
 unsigned int loadTexture(const char *path)
