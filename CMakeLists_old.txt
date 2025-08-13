@@ -17,39 +17,97 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib) # For shared libs (.
 set(PROJECT_ROOT ${PROJECT_SOURCE_DIR})
 
 
+
+# message(STATUS "-------------------------------------------------------------")
+# message(STATUS "DEBUGGING CMAKE PATHS")
+# message(STATUS "This script is running from: ${CMAKE_CURRENT_SOURCE_DIR}")
+# message(STATUS "Project root is: ${PROJECT_SOURCE_DIR}")
+# message(STATUS "")
+# message(STATUS "Expecting to find glad.c at: ${PROJECT_SOURCE_DIR}/src/glad.c")
+# message(STATUS "Expecting to find stb_image at: ${PROJECT_SOURCE_DIR}/src/stb_image_impl.cpp")
+# message(STATUS "-------------------------------------------------------------")
+
+
+
+# message(STATUS "--- Starting Core Library Debug ---")
+# set(CORE_SOURCE_DIR "${PROJECT_SOURCE_DIR}/src/core")
+# message(STATUS "Glob command will search for .cpp files in this directory: ${CORE_SOURCE_DIR}")
+
+
+# # This makes sure that our executable and the DLLs are in the same folder.
+# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+# set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+# set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+
+
 # ===================================================================
 # DEPENDENCY MANAGEMENT WITH FETCHCONTENT
 # ===================================================================
 include(FetchContent)
 set(FETCHCONTENT_QUIET ON) # Set to ON to hide download/build output
 
+# FetchContent_Declare(
+#     assimp
+#     GIT_REPOSITORY https://github.com/assimp/assimp.git
+#     GIT_TAG        v5.4.1
+# )
 
-# This creates external/ directory that survives clean builds
-set(FETCHCONTENT_BASE_DIR "${CMAKE_SOURCE_DIR}/external" CACHE PATH "FetchContent base directory")
+# # Set these variables BEFORE calling FetchContent_MakeAvailable
+# set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+# set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+# set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+# set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
+# set(ASSIMP_USE_OWN_ZLIB ON CACHE BOOL "" FORCE)
 
-include(FetchContent)
-set(FETCHCONTENT_QUIET ON)
-set(FETCHCONTENT_UPDATES_DISCONNECTED ON) # Don't check for updates every time
+# # For Windows cross-compilation specifically
+# if(WIN32)
+#     set(ASSIMP_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+# endif()
 
-FetchContent_Declare(
-    assimp
-    GIT_REPOSITORY https://github.com/assimp/assimp.git
-    GIT_TAG        v5.4.1
-    GIT_SHALLOW    ON
-)
+# FetchContent_MakeAvailable(assimp)
 
-# Your existing configuration
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
-set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
-set(ASSIMP_USE_OWN_ZLIB ON CACHE BOOL "" FORCE)
+set(DEPS_DIR "${CMAKE_SOURCE_DIR}/deps")
 
-if(WIN32)
-    set(ASSIMP_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+# Check for pre-built assimp with proper CMakeLists.txt
+if(EXISTS "${DEPS_DIR}/assimp/CMakeLists.txt")
+    message(STATUS "Using pre-built assimp from ${DEPS_DIR}/assimp")
+    
+    # Set the same variables for consistency
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
+    set(ASSIMP_USE_OWN_ZLIB ON CACHE BOOL "" FORCE)
+    
+    if(WIN32)
+        set(ASSIMP_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    endif()
+    
+    add_subdirectory("${DEPS_DIR}/assimp")
+    
+else()
+    message(STATUS "Pre-built assimp not found, fetching...")
+    
+    FetchContent_Declare(
+        assimp
+        GIT_REPOSITORY https://github.com/assimp/assimp.git
+        GIT_TAG        v5.4.1
+    )
+
+    # Set these variables BEFORE calling FetchContent_MakeAvailable
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
+    set(ASSIMP_USE_OWN_ZLIB ON CACHE BOOL "" FORCE)
+
+    # For Windows cross-compilation specifically
+    if(WIN32)
+        set(ASSIMP_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    endif()
+
+    FetchContent_MakeAvailable(assimp)
 endif()
-
-FetchContent_MakeAvailable(assimp)
 # # This is the robust way to handle cross-compilation.
 # FetchContent_GetProperties(assimp)
 
@@ -77,6 +135,16 @@ find_package(SDL3 REQUIRED CONFIG)
 add_library(glad STATIC ${PROJECT_ROOT}/src/core/glad.c)
 target_include_directories(glad PUBLIC ${PROJECT_ROOT}/include)
 
+# target_include_directories(Core PUBLIC
+#     ${PROJECT_ROOT}/include
+#     ${PROJECT_ROOT}/vendor
+# )
+# target_include_directories(glad PUBLIC include)
+
+# --- STB Image ---
+# Creating a small static library for stb_image is a clean approach.
+# add_library(stb_image_lib STATIC src/core/stb_image_impl.cpp)
+# target_include_directories(stb_image_lib PUBLIC vendor/stb) # Assuming stb_image.h is in vendor/stb
 
 
 # --- ImGui ---
@@ -129,7 +197,10 @@ target_link_libraries(Core PUBLIC assimp imgui)
 add_executable(${PROJECT_NAME}
     ${PROJECT_ROOT}/src/main.cpp
 )
-
+# target_include_directories(${PROJECT_NAME} PRIVATE
+#     include
+#     vendor
+# )
 
 
 # ===================================================================
@@ -141,7 +212,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Core
     imgui
     glad
-   
+    # stb_image_lib
+    # assimp # This is the target name created by FetchContent
+    # zlib   # This is the target name for the static zlib library
 )
 
 # --- Platform-Specific Linking ---

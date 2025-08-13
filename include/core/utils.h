@@ -3,6 +3,7 @@
 
 
 #include <glad/glad.h>
-unsigned int loadTexture(const char *path);
+#include <string>
+unsigned int loadTexture(const std::string& path, bool gammaCorrection);
 
 #endif

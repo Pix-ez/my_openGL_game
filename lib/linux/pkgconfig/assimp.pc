@@ -1,9 +1,0 @@
-libdir=/home/rahul/my_projects/learning-opengl/local_install/linux/lib
-includedir=/home/rahul/my_projects/learning-opengl/local_install/linux/include
-
-Name: Assimp
-Description: Import various well-known 3D model formats in an uniform manner.
-Version: 6.0.2
-Libs: -L${libdir} -lassimp
-Libs.private: -lstdc++ -lz
-Cflags: -I${includedir}
