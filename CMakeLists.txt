@@ -107,6 +107,7 @@ file(GLOB_RECURSE CORE_SOURCES
 
 add_library(Core STATIC
     ${CORE_SOURCES}
+    "${PROJECT_ROOT}/src/core/tinyfiledialogs.c"
 )
 
 # We add include/core so it can find "stb_image.h" directly.
@@ -165,5 +166,13 @@ if(WIN32)
 else()
     # For Linux, we find and link to OpenGL.
     find_package(OpenGL REQUIRED)
-    target_link_libraries(${PROJECT_NAME} PRIVATE OpenGL::GL)
+    # --- ADD THESE TWO LINES FOR TINYFILEDIALOGS ---
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(ZENITY zenity)
+
+    target_link_libraries(${PROJECT_NAME} PRIVATE 
+        OpenGL::GL
+        # --- AND ADD THIS LINE ---
+        ${ZENITY_LIBRARIES}
+    )
 endif()

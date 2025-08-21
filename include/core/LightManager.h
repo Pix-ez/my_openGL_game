@@ -2,7 +2,7 @@
 
 #include <vector>
 #include <memory>
-#include "shader.h"
+#include "Shader.h"
 
 // Forward declare to avoid including full headers
 class DirectionalLight;

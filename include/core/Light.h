@@ -1,7 +1,7 @@
 #pragma once
 
-#include "shader.h"
-#include "gameobject.h"
+#include "Shader.h"
+#include "GameObject.h"
 
 
 // Forward declaration to avoid circular dependency

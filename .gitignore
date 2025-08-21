@@ -7,3 +7,4 @@ imgui.ini
 resources/models/.gitkeep
 resources/models/*
 learning-opengl.code-workspace
+textures/

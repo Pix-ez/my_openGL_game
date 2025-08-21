@@ -1,7 +1,7 @@
 #pragma once
 
 
-#include "light.h"
+#include "Light.h"
 
 class PointLight : public Light {
 public:

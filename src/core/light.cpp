@@ -1,5 +1,5 @@
-#include "light.h"
-#include "light_manager.h"
+#include "Light.h"
+#include "LightManager.h"
 #include "imgui.h"
 
 

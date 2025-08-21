@@ -9,9 +9,11 @@ class Texture{
         Specular,
         Normal,
         Height,
+        BaseColor,
         Unknown
     
     };
+    
 
     Texture(const std::string& filepath, TextureType type);
     ~Texture();
@@ -19,15 +21,18 @@ class Texture{
     void bind(unsigned int uint = 0) const;
     void unbind() const;
 
-    inline GLuint getID() const {return id;}
-    inline TextureType getType() const { return textureType; }
-    inline const std::string& getPath() const { return path; }
+    bool isLoaded() const { return m_isLoaded; }
+
+    inline GLuint getID() const {return m_id;}
+    inline TextureType getType() const { return m_type; }
+    inline const std::string& getPath() const { return m_path; }
    
     private:
     
-    GLuint id;
-    TextureType textureType;
-    std::string path;
+    GLuint m_id;
+    TextureType m_type;
+    std::string m_path;
+    bool m_isLoaded = false;
 
     void loadFromFile(const std::string& filepath, bool gammaCorrection);
 };

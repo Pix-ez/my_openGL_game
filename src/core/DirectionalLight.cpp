@@ -1,4 +1,4 @@
-#include "directional_light.h"
+#include "DirectionalLight.h"
 #include "imgui.h"
 
 void DirectionalLight::UploadToShader(Shader& shader, int index) const {

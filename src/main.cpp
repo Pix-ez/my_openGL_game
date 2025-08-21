@@ -5,13 +5,14 @@
 #include <cmath>
 #include <string>
 #include <format>
-#include <core/shader.h>
+#include <list>
+#include <core/Shader.h>
 #include <core/camera.h>
 #include <core/inputController.h>
 // #define STB_IMAGE_IMPLEMENTATION
 // #include "stb_image.h"
 #include <core/utils.h>
-#include <core/model.h>
+#include <core/Model.h>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -21,11 +22,15 @@
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_opengl3.h"
-#include "gameobject.h"
-#include "light_manager.h"
-#include "directional_light.h"
-#include "point_light.h"
-#include "spot_light.h"
+#include "GameObject.h"
+#include "LightManager.h"
+#include "DirectionalLight.h"
+#include "PointLight.h"
+#include "SpotLight.h"
+#include "Primitives.h"
+#include "ProjectManager.h"
+#include "ResourceManager.h"
+#include "tinyfiledialogs.h"
 // #include <assimp/DefaultLogger.hpp>
 
 //settings
@@ -40,55 +45,85 @@ bool firstMouse = true;
 
 InputController inputController;
 
-void RenderScene(
-    Shader& shader,
-    const glm::mat4& view,
-    const glm::mat4& projection,
-    const glm::vec3& cameraPosition,
-    const std::vector<std::shared_ptr<GameObject>>& sceneRoots,
-    LightManager& lightManager
-) {
-    // 1. Activate the shader that will be used for this render pass.
-    shader.use();
+// A simple struct to hold notification data
+struct Notification {
+    std::string message;
+    float timer; // How long it's been visible
+};
 
-    // 2. Set all uniforms that are GLOBAL for this entire pass.
-    // This is the correct place to set lighting and camera position.
-    lightManager.UploadLightsToShader(shader);
-    shader.setVec3("viewPos", cameraPosition);
+// A global or member variable in your Application class
+std::list<Notification> g_notifications; // Use a list for easy removal
 
-    shader.setMat4("view", view);
-    shader.setMat4("projection", projection);
-    // 3. Loop through and draw all objects that use this shader.
-    for (const auto& obj : sceneRoots) {
-        // Here you could add a check: if (obj->shader == shader)
-        // This allows you to support multiple shaders later.
+// A function to add a new notification
+void AddNotification(const std::string& message) {
+    g_notifications.push_back({message, 0.0f});
+}
+
+void RenderNotifications() {
+    // Get the main viewport to position the notifications
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImVec2 work_pos = viewport->WorkPos; // Top-left corner of the window
+    ImVec2 work_size = viewport->WorkSize;
+
+    // Position for the next notification
+    ImVec2 notification_pos = {work_pos.x + work_size.x - 10, work_pos.y + work_size.y - 10};
+
+    // Use a window with no background, no title bar, no input, etc.
+    ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
+                                    ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                                    ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+                                    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs;
+
+    float padding = 10.0f;
+    
+    // Iterate through notifications in reverse to draw newest on top
+    for (auto it = g_notifications.rbegin(); it != g_notifications.rend(); ) {
+        Notification& notification = *it;
         
-        // The object's Draw method is now simpler. It only needs to set
-        // its OWN unique matrices (model) and then draw.
-        obj->Draw(shader, view, projection);
+        // Update timer
+        notification.timer += ImGui::GetIO().DeltaTime;
+        
+        // Fade out after a few seconds
+        float opacity = 1.0f;
+        if (notification.timer > 3.0f) {
+            opacity = std::max(0.0f, 1.0f - (notification.timer - 3.0f) / 2.0f);
+        }
+        
+        if (opacity <= 0.0f) {
+            // Remove the notification
+            it = std::list<Notification>::reverse_iterator(g_notifications.erase(std::next(it).base()));
+            continue;
+        }
+
+        ImGui::SetNextWindowBgAlpha(0.7f * opacity);
+        ImGui::SetNextWindowPos(notification_pos, ImGuiCond_Always, ImVec2(1.0f, 1.0f));
+        
+        std::string window_name = "Notification##" + notification.message; // Unique ID
+        ImGui::Begin(window_name.c_str(), nullptr, window_flags);
+        ImGui::TextColored({0.8f, 1.0f, 0.8f, opacity}, "✔"); // Green checkmark
+        ImGui::SameLine();
+        ImGui::TextColored({1.0f, 1.0f, 1.0f, opacity}, "%s", notification.message.c_str());
+        ImGui::End();
+
+        // Move the position for the next notification up
+        notification_pos.y -= ImGui::GetItemRectSize().y + padding;
+
+        ++it;
+    }
+}
+// For the shadow pass
+void RenderSceneGeometryOnly(Shader& shader, const std::vector<std::shared_ptr<GameObject>>& sceneRoots) {
+    for (const auto& obj : sceneRoots) {
+        obj->DrawGeometryOnly(shader);
     }
 }
 
-
-// void RenderScene(
-//     Shader& shader,
-//     const std::vector<std::shared_ptr<GameObject>>& sceneRoots,
-//     LightManager& lightManager
-// ) {
-//     // 1. Activate the shader that will be used for this render pass.
-//     shader.use();
-
-//     // 2. Set all uniforms that are GLOBAL for this entire pass.
-//     // This is the correct place to set lighting and camera position.
-//     lightManager.UploadLightsToShader(shader);
-    
-//     // 3. Loop through and draw all objects that use this shader.
-//     for (const auto& obj : sceneRoots) {
-//         obj->Draw(shader);
-//     }
-// }
-
-
+// For the main color pass
+void RenderSceneWithMaterial(Shader& shader, const std::vector<std::shared_ptr<GameObject>>& sceneRoots, int& textureUnit) {
+    for (const auto& obj : sceneRoots) {
+        obj->DrawWithMaterial(shader, textureUnit);
+    }
+}
 // renderQuad() renders a 1x1 XY quad in NDC
 // -----------------------------------------
 unsigned int quadVAO = 0;
@@ -254,11 +289,11 @@ int main(int argc, char *argv[]){
     std::string vertPath = basePath + "shader/shader.vert";
     std::string fragPath = basePath + "shader/shader.frag";
 
-    // std::string depth_vert = basePath + "shader/shadow_mapping.vert";
-    // std::string depth_frag = basePath + "shader/shadow_mapping.frag";
+    std::string depth_vert = basePath + "shader/shadow_mapping.vert";
+    std::string depth_frag = basePath + "shader/shadow_mapping.frag";
 
-    // std::string quad_vert = basePath + "shader/debug_quad.vert";
-    // std::string quad_frag = basePath + "shader/debug_quad.frag";
+    std::string quad_vert = basePath + "shader/debug_quad.vert";
+    std::string quad_frag = basePath + "shader/debug_quad.frag";
    
 
 
@@ -273,23 +308,60 @@ int main(int argc, char *argv[]){
     Light::SetLightManager(&lightManager);
 
     // Create the scene list (only for root objects)
+    ProjectManager projectManager;
     std::vector<std::shared_ptr<GameObject>> sceneRoots;
+    std::weak_ptr<GameObject> selectedObject;
     
     auto mainShader = std::make_shared<Shader>(vertPath, fragPath);
-    // auto depthShader = std::make_shared<Shader>(depth_vert, depth_frag);
-    // auto debugQuadShader = std::make_shared<Shader>(quad_vert, quad_frag);
+    auto depthShader = std::make_shared<Shader>(depth_vert, depth_frag);
+    auto debugQuadShader = std::make_shared<Shader>(quad_vert, quad_frag);
 
-    auto backpackModel = std::make_shared<Model>((basePath + "resources/models/backpack/backpack.obj"), mainShader);
+    // auto backpackModel = std::make_shared<Model>((basePath + "resources/models/backpack/backpack.obj"), mainShader);
 
-    auto suzanModel = std::make_shared<Model>((basePath + "resources/models/suzan/blender_monkey.obj"), mainShader);
-    auto suzan =  std::make_shared<GameObject>(suzanModel, "suzan");
+    // auto suzanModel = std::make_shared<Model>((basePath + "resources/models/suzan/blender_monkey.fbx"), mainShader);
+    // auto suzan =  std::make_shared<GameObject>(suzanModel, "suzan");
 
-    auto backpack =  std::make_shared<GameObject>(backpackModel, "Backpack");
-    backpack->position = {-2.0f, 4.0f, -1.0f};
-    backpack->scale = {1,1,1};
-    sceneRoots.push_back(backpack);
+    auto bcubeModel = std::make_shared<Model>((basePath + "resources/models/suzan/cube.fbx"));
+    auto cube =  std::make_shared<GameObject>(bcubeModel, "cube");
+    sceneRoots.push_back(cube);
+    // auto backpack =  std::make_shared<GameObject>(backpackModel, "Backpack");
+    // backpack->position = {-2.0f, 4.0f, -1.0f};
+    // backpack->scale = {1,1,1};
+    // sceneRoots.push_back(backpack);
 
 
+    // suzan->position = {-2.0f, 4.0f, -1.0f};
+    // suzan->scale = {1,1,1};
+    // sceneRoots.push_back(suzan);
+
+    // --- Create a Cube ---
+std::vector<Vertex> cubeVertices;
+std::vector<unsigned int> cubeIndices;
+Primitives::GenerateCube(cubeVertices, cubeIndices); // Fill the vectors
+auto cubeModel = std::make_shared<Model>(cubeVertices, cubeIndices); // Create a model from the data
+auto cubeObject = std::make_shared<GameObject>(cubeModel, "MyCube");
+cubeObject->position = {2.0f, 0.5f, 0.0f};
+sceneRoots.push_back(cubeObject);
+
+// std::vector<Vertex> cubeVertices;
+// std::vector<unsigned int> cubeIndices;
+// Primitives::GenerateCube(cubeVertices, cubeIndices); // Fill the vectors
+auto cubeModel2 = std::make_shared<Model>(cubeVertices, cubeIndices); // Create a model from the data
+auto cubeObject2 = std::make_shared<GameObject>(cubeModel2, "MyCube2");
+cubeObject2->position = {2.0f, 0.5f, 0.0f};
+sceneRoots.push_back(cubeObject2);
+
+
+
+// // --- Create a Plane ---
+std::vector<Vertex> planeVertices;
+std::vector<unsigned int> planeIndices;
+Primitives::GeneratePlane(planeVertices, planeIndices);
+auto planeModel = std::make_shared<Model>(planeVertices, planeIndices);
+auto planeObject = std::make_shared<GameObject>(planeModel, "GroundPlane");
+planeObject->position = {0.0f, -0.5f, 0.0f};
+planeObject->scale = {10.0f, 1.0f, 10.0f};
+sceneRoots.push_back(planeObject);
     
     // auto sponzaModel = std::make_shared<Model>((basePath + "resources/models/Sponza/sponza.obj"), mainShader);
 
@@ -301,6 +373,7 @@ int main(int argc, char *argv[]){
 
     // 3. Create your lights just like any other GameObject
     auto dirLight = std::make_shared<DirectionalLight>();
+    dirLight->position= {-2.0f, 4.0f, -1.0f};
     dirLight->rotation = {-20.0f, -30.0f, 0.0f}; // Set direction via rotation
     // dirLight->diffuse = {0.4f, 0.4f, 0.4f};
     dirLight->ambient = {1.0f, 1.0f, 1.0f};
@@ -423,7 +496,7 @@ int main(int argc, char *argv[]){
     // unsigned int specularMap = loadTexture((basePath + "textures/container2_specular.png").c_str());
     // unsigned int emissionMap = loadTexture((basePath + "textures/matrix.jpg").c_str());
     
-    //plane
+    // plane
     // float planeVertices[] = {
     //     // positions            // normals         // texcoords
     //      25.0f, -0.5f,  25.0f,  0.0f, 1.0f, 0.0f,  25.0f,  0.0f,
@@ -449,38 +522,40 @@ int main(int argc, char *argv[]){
     // glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
     // glBindVertexArray(0);
 
-    // // load textures
-    // // -------------
+    // // // load textures
+    // // // -------------
     // unsigned int woodTexture = loadTexture((basePath+"resources/textures/wood.png"), false);
 
 
 
-    //create buffer for depth 
-    // GLuint depthMapFBO;
-    // glGenFramebuffers(1, &depthMapFBO);
+    // create buffer for depth 
+    GLuint depthMapFBO;
+    glGenFramebuffers(1, &depthMapFBO);
 
-    // //create texture to store depth
-    // const GLuint SHADOW_WIDTH = 1024, SHADOW_HEIGHT = 1024;
-    // GLuint depthMap;
-    // glGenTextures(1, &depthMap);
-    // glBindTexture(GL_TEXTURE_2D, depthMap);
-    // glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, 
-    //             SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+    //create texture to store depth
+    const GLuint SHADOW_WIDTH = 1024, SHADOW_HEIGHT = 1024;
+    GLuint depthMap;
+    glGenTextures(1, &depthMap);
+    glBindTexture(GL_TEXTURE_2D, depthMap);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, 
+                SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
 
-    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER); 
-    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER); 
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER); 
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER); 
+    float borderColor[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);      
     
-    // glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
-    // glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthMap, 0);
-    // glDrawBuffer(GL_NONE);
-    // glReadBuffer(GL_NONE);
-    // glBindFramebuffer(GL_FRAMEBUFFER, 0); 
+    glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthMap, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0); 
 
-
-    // debugQuadShader->use();
-    // debugQuadShader->setInt("depthMap",0);
+    mainShader->setInt("shadowMap", 1);
+    debugQuadShader->use();
+    debugQuadShader->setInt("depthMap",0);
 
     //to enable wireframe
     // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -614,6 +689,113 @@ int main(int argc, char *argv[]){
             ImGui::End();
         }
 
+        // --- MAIN MENU BAR ---
+if (ImGui::BeginMainMenuBar()) {
+    if (ImGui::BeginMenu("File")) {
+        if (ImGui::MenuItem("New Project...")) {
+            // Use tinyfiledialogs to ask the user for a new, empty folder
+            const char* folderPath = tinyfd_selectFolderDialog("Select a New Empty Folder for Project", "");
+            if (folderPath) {
+                if (projectManager.CreateNewProject(folderPath)) {
+                    // Success! Clear the old scene.
+                    selectedObject.reset();
+                    sceneRoots.clear();
+                } else {
+                    tinyfd_messageBox("Error", "Could not create project. The folder must be empty.", "ok", "error", 1);
+                }
+            }
+        }
+
+        if (ImGui::MenuItem("Load Project...")) {
+            // Ask for the .myproj file
+            const char* supportedFiles[1] = { "*.myproj" };
+            const char* filePath = tinyfd_openFileDialog("Load Project", "", 1, supportedFiles, "MyEngine Project", 0);
+            if (filePath) {
+                if (projectManager.LoadProject(filePath)) {
+                    // Project is loaded, now load its scene
+                    selectedObject.reset();
+                    projectManager.LoadScene(sceneRoots);
+                } else {
+                    tinyfd_messageBox("Error", "Could not load the selected project file.", "ok", "error", 1);
+                }
+            }
+        }
+        
+        // The "Save" item should only be clickable if a project is loaded
+        if (ImGui::MenuItem("Save Scene", "Ctrl+S", false, projectManager.IsProjectLoaded())) {
+            if (projectManager.SaveScene(sceneRoots)) {
+                // --- THIS IS THE FIX ---
+                // Replace the tinyfd call with your own ImGui-based notification
+                AddNotification("Scene saved successfully!");
+                // tinyfd_notifyPopup("Saved", "Scene saved successfully!", "info"); // DELETE THIS
+            } else {
+                AddNotification("Error: Failed to save scene!");
+            }
+        }
+
+        ImGui::Separator();
+        
+        if (ImGui::MenuItem("Exit")) {
+            is_running = false;
+        }
+        ImGui::EndMenu();
+    }
+    
+    // --- SCENE MENU ---
+    // This menu will handle adding objects to the scene
+    if (ImGui::BeginMenu("Scene", projectManager.IsProjectLoaded())) {
+        if (ImGui::MenuItem("Import Model...")) {
+            const char* supportedFiles[2] = { "*.obj", "*.fbx" }; // Add more as needed
+            const char* filePath = tinyfd_openFileDialog("Import Model", "", 2, supportedFiles, "3D Models", 0);
+            if (filePath) {
+                // This is the full asset pipeline in action!
+                std::string relativeCachePath = projectManager.ProcessAndImportAsset(filePath);
+                if (!relativeCachePath.empty()) {
+                    // Asset was processed, now load it into the scene
+                    auto resourceManager = projectManager.GetResourceManager(); // You'll need to add this getter
+                    auto model = resourceManager->LoadModel(relativeCachePath);
+                    auto newObject = std::make_shared<GameObject>(model, std::filesystem::path(filePath).stem().string());
+                    sceneRoots.push_back(newObject);
+                }
+            }
+        }
+        
+        ImGui::Separator();
+        
+        if (ImGui::BeginMenu("Add Primitive")) {
+            if (ImGui::MenuItem("Cube")) {
+                auto resourceManager = projectManager.GetResourceManager();
+                auto model = resourceManager->LoadModel("primitive::cube");
+                auto newObject = std::make_shared<GameObject>(model, "Cube");
+                sceneRoots.push_back(newObject);
+            }
+            if (ImGui::MenuItem("Plane")) {
+                 auto resourceManager = projectManager.GetResourceManager();
+                auto model = resourceManager->LoadModel("primitive::plane");
+                auto newObject = std::make_shared<GameObject>(model, "Plane");
+                sceneRoots.push_back(newObject);
+            }
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Add Light")) {
+             if (ImGui::MenuItem("Directional Light")) {
+                auto light = std::make_shared<DirectionalLight>();
+                sceneRoots.push_back(light);
+                lightManager.RegisterLight(light.get()); // Don't forget to register it
+            }
+            if (ImGui::MenuItem("Point Light")) {
+                auto light = std::make_shared<PointLight>();
+                sceneRoots.push_back(light);
+                lightManager.RegisterLight(light.get());
+            }
+            ImGui::EndMenu();
+        }
+        ImGui::EndMenu();
+    }
+    
+    ImGui::EndMainMenuBar();
+}
         
         // --- IMGUI UI CODE in your main loop ---
 
@@ -683,50 +865,51 @@ int main(int argc, char *argv[]){
 
         ImGui::End();
         // Rendering
+        RenderNotifications();
         ImGui::Render();
 
+        
 
-        glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
+        // glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
 
         glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         //render depth of scene from light view to texture
-        // glm::mat4 lightProjection, lightView;
-        // glm::mat4 lightSpaceMatrix;
-        // float near_plane = 1.0f, far_plane = 7.5f;
-        // lightProjection =  glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, near_plane, far_plane);
-        // lightView = glm::lookAt(dirLight->position, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-        // lightSpaceMatrix = lightProjection * lightView;
+        glm::mat4 lightProjection, lightView;
+        glm::mat4 lightSpaceMatrix;
+        float near_plane = 1.0f, far_plane = 7.5f;
+        lightProjection =  glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, near_plane, far_plane);
+        lightView = glm::lookAt(dirLight->position, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        lightSpaceMatrix = lightProjection * lightView;
         
-        // glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
-        // glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
-        // glClear(GL_DEPTH_BUFFER_BIT);
+        glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
+        glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+        glClear(GL_DEPTH_BUFFER_BIT);
+
+        //set face culling to front
+        glCullFace(GL_FRONT);
+
+        //render scene from light view
+        depthShader->use();
+        depthShader->setMat4("lightSpaceMatrix", lightSpaceMatrix);
 
 
-        // //render scene from light view
-        // depthShader->use();
-        // depthShader->setMat4("lightSpaceMatrix", lightSpaceMatrix);
 
+        // ShadowRenderScene(*depthShader, sceneRoots, lightManager);
+        RenderSceneGeometryOnly(*depthShader, sceneRoots);
+        // 2. SWITCH BACK TO DEFAULT FRAMEBUFFER
+        // ====================================
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        //reset viewport
+        glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // glActiveTexture(GL_TEXTURE0);
-        // glBindTexture(GL_TEXTURE_2D, woodTexture);
-        // glBindVertexArray(planeVAO);
-        // glDrawArrays(GL_TRIANGLES, 0, 6);
+        //set face culling to normal for normal rendering 
+        glCullFace(GL_BACK);
 
-
-        // RenderScene(*depthShader, sceneRoots, lightManager);
-        // // 2. SWITCH BACK TO DEFAULT FRAMEBUFFER
-        // // ====================================
-        // glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        // //reset viewport
-        // glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-
-        // // glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
-        // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        // // render Depth map to quad for visual debugging
-        // // ---------------------------------------------
+        // render Depth map to quad for visual debugging
+        // ---------------------------------------------
         // debugQuadShader->use();
         // debugQuadShader->setFloat("near_plane", near_plane);
         // debugQuadShader->setFloat("far_plane", far_plane);
@@ -742,8 +925,27 @@ int main(int argc, char *argv[]){
         // view/projection transformations
         projection = glm::perspective(glm::radians(camera.FOV), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
         view = camera.GetViewMatrix();
+        mainShader->use();
+        //set global texureunit to 0 for color pass
+        //Global textureUnit counter
+        int textureUnit = 0;
         
-        RenderScene(*mainShader, view, projection, camera.Position, sceneRoots, lightManager);
+
+        mainShader->setMat4("projection", projection);
+        mainShader->setMat4("view", view);
+        mainShader->setVec3("viewPos", camera.Position);
+        mainShader->setMat4("lightSpaceMatrix", lightSpaceMatrix);
+        lightManager.UploadLightsToShader(*mainShader);
+
+        // Bind the depth map texture to a specific texture unit (e.g., unit 0)
+        glActiveTexture(GL_TEXTURE0 + textureUnit);
+        glBindTexture(GL_TEXTURE_2D, depthMap);
+        mainShader->setInt("shadowMap", textureUnit); // Tell the main shader the shadow map is in unit 0
+        textureUnit++;
+
+        // B. Render the scene using the configured shader
+        RenderSceneWithMaterial(*mainShader, sceneRoots, textureUnit);
+        // RenderScene(*mainShader, view, projection, camera.Position, sceneRoots, lightManager);
         
         // //render light cube
         //Lighting
@@ -961,8 +1163,8 @@ int main(int argc, char *argv[]){
     // glDeleteProgram(lightCubeShader->ID);
 
     glDeleteProgram(mainShader->ID);
-    // glDeleteProgram(debugQuadShader->ID);
-    // glDeleteProgram(depthShader->ID);
+    glDeleteProgram(debugQuadShader->ID);
+    glDeleteProgram(depthShader->ID);
 
     // Assimp::DefaultLogger::kill();
     

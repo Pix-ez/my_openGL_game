@@ -1,4 +1,4 @@
-#include "spot_light.h"
+#include "SpotLight.h"
 #include "imgui.h"
 
 void SpotLight::UploadToShader(Shader& shader, int index) const {

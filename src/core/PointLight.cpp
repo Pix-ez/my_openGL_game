@@ -1,4 +1,4 @@
-#include "point_light.h"
+#include "PointLight.h"
 
 void PointLight::UploadToShader(Shader& shader, int index) const {
     // Construct the uniform name string, e.g., "pointLights[0]."

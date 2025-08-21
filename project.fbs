@@ -1,0 +1,10 @@
+// project.fbs
+namespace MyEngine.Project;
+
+table Project {
+  name: string;
+  version: string;
+  main_scene_file: string; // e.g., "scenes/main.bin"
+}
+
+root_type Project;

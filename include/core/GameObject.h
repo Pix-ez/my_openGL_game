@@ -1,6 +1,6 @@
 #pragma once
 
-#include "model.h"
+#include "Model.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <memory>
@@ -20,7 +20,7 @@ public:
 
     // Constructor now takes an optional name
     GameObject(std::shared_ptr<Model> model, std::string name = "GameObject") 
-        : model(model), name(std::move(name)) {}
+        : model(model), name(std::move(name)), m_id(0) {}
 
     virtual ~GameObject() = default;
 
@@ -31,8 +31,10 @@ public:
     // --- GAME LOOP METHODS ---
     // These are now recursive
     virtual void Update(float deltaTime);
-    void Draw(Shader& shader, const glm::mat4& view, const glm::mat4& projection);
-    // void Draw(Shader& shader);
+    // void Draw(Shader& shader, const glm::mat4& view, const glm::mat4& projection);
+    // void Draw(Shader& shader, int& textureUnit);
+    void DrawWithMaterial(Shader& shader, int& textureUnit);
+    void DrawGeometryOnly(Shader& shader); // The shader is needed here for the model matrix
 
     // --- UI METHOD (for Part 2) ---
     virtual void OnImGui();
@@ -40,7 +42,14 @@ public:
     // Public access to children for UI iteration
     const std::vector<std::shared_ptr<GameObject>>& GetChildren() const { return m_children; }
 
+    //getter for id
+    uint32_t GetID() const { return m_id; }
+    void SetID(uint32_t id) {m_id = id;}
+
+    std::weak_ptr<GameObject> GetParent() const { return m_parent; }
+
 private:
+    uint32_t m_id;
     // Hierarchy relationships
     std::weak_ptr<GameObject> m_parent;
     std::vector<std::shared_ptr<GameObject>> m_children;

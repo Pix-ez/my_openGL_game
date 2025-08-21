@@ -1,0 +1,73 @@
+// MyEngine/scene.fbs
+namespace MyEngine.Scene;
+
+// --- Basic Data Types ---
+struct Vec3 { x: float; y: float; z: float; }
+struct Quat { x: float; y: float; z: float; w: float; }
+
+// --- Components ---
+// A Transform is a fundamental component of every GameObject
+table Transform {
+  position: Vec3;
+  rotation: Vec3; // Using Euler angles (pitch, yaw, roll) is simpler for serialization
+  scale: Vec3;
+}
+
+table Material {
+  base_color: Vec3;
+  shininess: float;
+  diffuse_texture_path: string;
+  specular_texture_path: string;
+  normal_texture_path: string;
+}
+
+table MeshRenderer {
+  asset_path: string; // e.g., "cache/backpack.mesh" or "primitive::cube"
+  material: [Material];
+}
+
+enum LightType: byte { Directional, Point, Spot }
+
+table Light {
+  light_type: LightType;
+  ambient: Vec3;
+  diffuse: Vec3;
+  specular: Vec3;
+  intensity: float;
+  // Point/Spot specific properties
+  constant: float;
+  linear: float;
+  quadratic: float;
+  // Spot specific properties
+  cutoff: float;
+  outer_cutoff: float;
+}
+
+// A union allows a component to be one of many types
+union ComponentData {
+  MeshRenderer,
+  Light
+}
+
+// The Component table holds the type and the data
+table Component {
+  data: ComponentData;
+}
+
+// --- The Main Object ---
+table GameObject {
+  id: uint;
+  parent_id: uint; // 0 indicates a root object
+  name: string;
+  transform: Transform;
+  components: [Component];
+}
+
+// --- The Root Table ---
+table Scene {
+  name: string;
+  version: string;
+  game_objects: [GameObject];
+}
+
+root_type Scene;

@@ -1,4 +1,4 @@
-#include "core/mesh.h"
+#include "Mesh.h"
 
 // Constructor
 Mesh::Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices, std::shared_ptr<Material> material)
@@ -7,6 +7,15 @@ Mesh::Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices, std:
     // Now that we have all the required data, set the vertex buffers and its attribute pointers.
     setupMesh();
 }
+// Mesh::Mesh(int dummy, std::vector<Vertex> vertices, std::vector<unsigned int> indices, std::shared_ptr<Material> material)
+//     : m_vertices(std::move(vertices)),
+//       m_indices(std::move(indices)),
+//       m_material(std::move(material))
+// {
+//     // The rest of the constructor body is the same
+//     setupMesh();
+// }
+
 
 // Destructor
 Mesh::~Mesh() {
@@ -56,22 +65,44 @@ Mesh& Mesh::operator=(Mesh&& other) noexcept {
 }
 
 // The new simplified Draw function
-void Mesh::Draw(Shader& shader) 
-{
-    // Use the material to set up the shader (bind textures, set uniforms)
+// void Mesh::Draw(Shader& shader,int& textureUnit) 
+// {
+//     // Use the material to set up the shader (bind textures, set uniforms)
+//     if (m_material) {
+//         m_material->apply(textureUnit); // We'll use the apply() method we defined earlier
+//     }
+    
+//     // Draw the mesh
+//     glBindVertexArray(m_VAO);
+//     glDrawElements(GL_TRIANGLES, static_cast<unsigned int>(m_indices.size()), GL_UNSIGNED_INT, 0);
+//     glBindVertexArray(0);
+
+//     // Always good practice to set everything back to defaults once configured.
+//     glActiveTexture(GL_TEXTURE0);
+// }
+
+void Mesh::DrawWithMaterial(Shader& shader, int& textureUnit) {
+    // This code is already correct. It applies the material and then draws.
     if (m_material) {
-        m_material->apply(); // We'll use the apply() method we defined earlier
+        m_material->apply(shader, textureUnit);
     }
     
-    // Draw the mesh
     glBindVertexArray(m_VAO);
     glDrawElements(GL_TRIANGLES, static_cast<unsigned int>(m_indices.size()), GL_UNSIGNED_INT, 0);
     glBindVertexArray(0);
 
-    // Always good practice to set everything back to defaults once configured.
-    glActiveTexture(GL_TEXTURE0);
+    // Note: The glActiveTexture(GL_TEXTURE0) at the end is generally not needed
+    // and can sometimes cause issues. It's safe to remove it.
 }
 
+// 2. Implement the new, simple function
+void Mesh::DrawGeometryOnly() {
+    // This function doesn't care about shaders or materials.
+    // It just binds the vertex data and issues the draw call.
+    glBindVertexArray(m_VAO);
+    glDrawElements(GL_TRIANGLES, static_cast<unsigned int>(m_indices.size()), GL_UNSIGNED_INT, 0);
+    glBindVertexArray(0);
+}
 
 // This is your original setupMesh function, which was very well written!
 // I've just updated it to use the member variables (e.g., m_VAO).

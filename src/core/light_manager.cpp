@@ -1,7 +1,7 @@
-#include "light_manager.h"
-#include "directional_light.h" // Need full definitions here
-#include "point_light.h"
-#include "spot_light.h"
+#include "LightManager.h"
+#include "DirectionalLight.h" // Need full definitions here
+#include "PointLight.h"
+#include "SpotLight.h"
 #include <algorithm>
 
 void LightManager::RegisterLight(Light* light) {
