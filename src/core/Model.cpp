@@ -2,6 +2,7 @@
 #include "Mesh.h"
 #include <tuple> 
 #include <iomanip>
+#include <algorithm>
 
 // Model::Model(const std::string& path, std::shared_ptr<Shader> defaultShader, bool gamma)
 //         : m_defaultShader(defaultShader), gammaCorrection(gamma) {
@@ -18,12 +19,16 @@ Model::Model(const std::string& path, bool gamma)
     : gammaCorrection(gamma) // REMOVE m_defaultShader from the initializer list
 {
     loadModel(path);
+    CalculateBoundingBox(); 
 }
 
 // --- The primitive constructor is ALREADY CORRECT! No changes needed. ---
 Model::Model(const std::vector<Vertex>& vertices, const std::vector<unsigned int>& indices) {
     auto defaultMaterial = std::make_shared<Material>();
     m_meshes.emplace_back(vertices, indices, defaultMaterial);
+
+    CalculateBoundingBox(); 
+    
 }
 
 // void Model::Draw(Shader& shader, int& textureUnit) {
@@ -45,6 +50,28 @@ void Model::DrawGeometryOnly() {
 // void Model::addMesh(const Mesh&& mesh) {
 //     m_meshes.emplace_back(std::move(mesh));
 // }
+
+void Model::CalculateBoundingBox() {
+    // Initialize with extreme values
+    minBounds = glm::vec3(std::numeric_limits<float>::max());
+    maxBounds = glm::vec3(std::numeric_limits<float>::lowest());
+
+    // Iterate through all meshes in the model
+    for (const auto& mesh : m_meshes) {
+        // Iterate through all vertices in the current mesh
+        for (const auto& vertex : mesh.GetVertices()) {
+            // Update the minimum bounds
+            minBounds.x = std::min(minBounds.x, vertex.Position.x);
+            minBounds.y = std::min(minBounds.y, vertex.Position.y);
+            minBounds.z = std::min(minBounds.z, vertex.Position.z);
+
+            // Update the maximum bounds
+            maxBounds.x = std::max(maxBounds.x, vertex.Position.x);
+            maxBounds.y = std::max(maxBounds.y, vertex.Position.y);
+            maxBounds.z = std::max(maxBounds.z, vertex.Position.z);
+        }
+    }
+}
 
 void Model::loadModel(const std::string& path) {
         Assimp::Importer importer;

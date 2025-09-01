@@ -39,20 +39,20 @@ glm::vec3 SpotLight::GetDirection() const {
     return glm::normalize(front);
 }
 
-void SpotLight::OnImGui()
+void SpotLight::OnImGui(bool &isDirty)
 {
 
-    Light::OnImGui();
+    Light::OnImGui(isDirty);
     ImGui::Separator();
     ImGui::Text("SpotLight Properties");
-    ImGui::SliderFloat3("point-towards (deg)", &direction.x, 0.0f, 360.0f);
-    ImGui::SliderFloat("Cut Off", &cutOff, 0.0f, 90.0f, "%.1f deg");
-    ImGui::SliderFloat("Outer Cut Off", &outerCutOff, 0.0f, 90.0f, "%.1f deg");
-    ImGui::SliderFloat("Constant", &constant, 0.0f, 2.0f, "%.3f");
-    ImGui::SliderFloat("Linear", &linear, 0.0f, 1.0f, "%.4f");
-    ImGui::SliderFloat("Quadratic", &quadratic, 0.0f, 1.0f, "%.5f");
-    ImGui::ColorEdit3("Ambient", &ambient.x);
-    ImGui::ColorEdit3("Diffuse", &diffuse.x);
-    ImGui::ColorEdit3("Specular", &specular.x);
+    if(ImGui::SliderFloat3("point-towards (deg)", &direction.x, 0.0f, 360.0f)){ isDirty = true; }
+    if(ImGui::SliderFloat("Cut Off", &cutOff, 0.0f, 90.0f, "%.1f deg")){ isDirty = true; }
+    if(ImGui::SliderFloat("Outer Cut Off", &outerCutOff, 0.0f, 90.0f, "%.1f deg")){ isDirty = true; }
+    if(ImGui::SliderFloat("Constant", &constant, 0.0f, 2.0f, "%.3f")){ isDirty = true; }
+    if(ImGui::SliderFloat("Linear", &linear, 0.0f, 1.0f, "%.4f")){ isDirty = true; }
+    if(ImGui::SliderFloat("Quadratic", &quadratic, 0.0f, 1.0f, "%.5f")){ isDirty = true; }
+    if(ImGui::ColorEdit3("Ambient", &ambient.x)){ isDirty = true; }
+    if(ImGui::ColorEdit3("Diffuse", &diffuse.x)){ isDirty = true; }
+    if(ImGui::ColorEdit3("Specular", &specular.x)){ isDirty = true; }
 
 }

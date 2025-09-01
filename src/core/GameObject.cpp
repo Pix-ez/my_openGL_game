@@ -1,11 +1,60 @@
 #include "GameObject.h"
 
 // --- HIERARCHY ---
+uint32_t GameObject::s_nextID = 1;
+
+GameObject::GameObject(std::shared_ptr<Model> model, std::string name, bool enablePhysics, bool enableCollider) 
+    : model(model), name(std::move(name)) // Removed m_id(0) from here
+{
+    // Assign a new, unique ID and then increment the static counter
+    // for the next object.
+    m_id = s_nextID++;
+    if (enablePhysics) {
+        physics = std::make_unique<PhysicsComponent>(this);
+    }
+   
+
+    if (enableCollider && model) {
+        collider = std::make_unique<ColliderComponent>(this, model);
+        std::cout<<"colider added"<<std::endl;
+    } else {
+        // --- ADD THIS DEBUG MESSAGE ---
+        if (model) { // Only print if a model was provided but collider was not created
+            std::cout << "INFO: GameObject '" << name << "' created WITHOUT a collider component." << std::endl;
+        }
+        // --- END DEBUG MESSAGE ---
+    }
+}
+
+void GameObject::Update(float deltaTime) {
+    // Update the physics component if it exists
+    if (physics ) {
+        physics->Update(deltaTime);
+    }
+
+    if (collider) {
+        collider->Update(); // <-- ADD THIS
+    }
+
+    // Recursively update children
+    for (const auto& child : m_children) {
+        child->Update(deltaTime);
+    }
+}
 
 void GameObject::AddChild(std::shared_ptr<GameObject> child) {
     if (child) {
         child->m_parent = shared_from_this(); // Use shared_from_this() to get a weak_ptr
         m_children.push_back(child);
+    }
+}
+
+void GameObject::RemoveChild(std::shared_ptr<GameObject> child) {
+    if (child) {
+        // Detach the child from this parent
+        child->m_parent.reset();
+        // Remove the child from our list of children
+        m_children.erase(std::remove(m_children.begin(), m_children.end(), child), m_children.end());
     }
 }
 
@@ -35,14 +84,14 @@ glm::mat4 GameObject::GetWorldTransformMatrix() const {
 
 // --- GAME LOOP (now recursive) ---
 
-void GameObject::Update(float deltaTime) {
-    // Base logic (can be overridden)
+// void GameObject::Update(float deltaTime) {
+//     // Base logic (can be overridden)
 
-    // Update all children recursively
-    for (const auto& child : m_children) {
-        child->Update(deltaTime);
-    }
-}
+//     // Update all children recursively
+//     for (const auto& child : m_children) {
+//         child->Update(deltaTime);
+//     }
+// }
 
 // void GameObject::Draw(Shader& shader, const glm::mat4& view, const glm::mat4& projection) {
 //     if (!model) {
@@ -104,12 +153,12 @@ void GameObject::DrawGeometryOnly(Shader& shader) {
 //     ImGui::DragFloat3("Scale", &scale.x, 0.05f);
 // }
 
-void GameObject::OnImGui() {
+void GameObject::OnImGui(bool& isDirty) {
     // --- Part 1: Keep the existing Transform editor ---
     ImGui::Text("Transform");
-    ImGui::DragFloat3("Position", &position.x, 0.1f);
-    ImGui::DragFloat3("Rotation", &rotation.x, 1.0f);
-    ImGui::DragFloat3("Scale", &scale.x, 0.05f);
+    if (ImGui::DragFloat3("Position", &position.x, 0.1f)) { isDirty = true; }
+    if (ImGui::DragFloat3("Rotation", &rotation.x, 1.0f)) { isDirty = true; }
+    if (ImGui::DragFloat3("Scale", &scale.x, 0.05f))    { isDirty = true; }
     
     ImGui::Separator();
 
@@ -131,10 +180,10 @@ void GameObject::OnImGui() {
                     
                     // --- This is the color editor! ---
                     // It directly modifies the diffuseColor in the Material object.
-                    ImGui::ColorEdit3("Diffuse Color", &mesh.m_material->BaseColor.x);
+                    if(ImGui::ColorEdit3("Diffuse Color", &mesh.m_material->BaseColor.x)){ isDirty = true; }
 
                     // We can also edit other material properties here!
-                    ImGui::DragFloat("Shininess", &mesh.m_material->shininess, 1.0f, 0.0f, 256.0f);
+                   if( ImGui::DragFloat("Shininess", &mesh.m_material->shininess, 1.0f, 0.0f, 256.0f)){ isDirty = true; }
 
                     // You could add buttons to assign textures here in the future
 
@@ -143,4 +192,18 @@ void GameObject::OnImGui() {
             }
         }
     }
+    
+    if (ImGui::CollapsingHeader("Physics")) {
+            if (physics) {
+                ImGui::Checkbox("Is Static", &physics->isStatic);
+                ImGui::Checkbox("Apply Gravity", &physics->applyGravity);
+                ImGui::DragFloat("Gravity Override", &physics->gravityOverride, 0.1f);
+                ImGui::InputFloat3("Velocity", &physics->velocity.x);
+                ImGui::InputFloat("Mass", &physics->mass);
+            } else {
+                if (ImGui::Button("Add Physics Component")) {
+                    physics = std::make_unique<PhysicsComponent>(this);
+                }
+            }
+        }
 }

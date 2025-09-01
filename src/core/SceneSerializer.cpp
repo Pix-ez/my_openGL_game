@@ -30,17 +30,188 @@ SceneSerializer::SceneSerializer(ResourceManager* resourceManager)
     : m_resourceManager(resourceManager) {}
 
 // --- SAVING ---
+void GatherAllObjects(
+    std::shared_ptr<GameObject> object, 
+    std::vector<std::shared_ptr<GameObject>>& flatList)
+{
+    // Add the current object to the list
+    flatList.push_back(object);
+
+    // Recurse for all children
+    for (const auto& child : object->GetChildren()) {
+        GatherAllObjects(child, flatList);
+    }
+}
+
+// bool SceneSerializer::SaveScene(const std::filesystem::path& filePath, const std::vector<std::shared_ptr<GameObject>>& sceneRoots) {
+//     flatbuffers::FlatBufferBuilder builder(1024);
+    
+    
+//     std::vector<flatbuffers::Offset<MyEngine::Scene::GameObject>> gameObjectOffsets;
+    
+//     // Recursively serialize all objects starting from the roots
+//     for (const auto& rootObject : sceneRoots) {
+//         SerializeObjectAndChildren(rootObject, builder, gameObjectOffsets);
+//     }
+
+//     auto gameObjectsVector = builder.CreateVector(gameObjectOffsets);
+//     auto nameString = builder.CreateString("MainScene");
+//     auto versionString = builder.CreateString("1.0.0");
+    
+//     auto scene = MyEngine::Scene::CreateScene(builder, nameString, versionString, gameObjectsVector);
+//     builder.Finish(scene);
+    
+//     std::ofstream outfile(filePath, std::ios::binary);
+//     if (!outfile) {
+//         std::cerr << "Error: Could not open file for writing: " << filePath << std::endl;
+//         return false;
+//     }
+//     outfile.write(reinterpret_cast<const char*>(builder.GetBufferPointer()), builder.GetSize());
+    
+//     std::cout << "Scene saved successfully to " << filePath << std::endl;
+//     return true;
+// }
+
 
 bool SceneSerializer::SaveScene(const std::filesystem::path& filePath, const std::vector<std::shared_ptr<GameObject>>& sceneRoots) {
     flatbuffers::FlatBufferBuilder builder(1024);
     
+    
+     // --- STAGE 1: GATHER ---
+    // Create a flat list of all GameObjects in the scene.
+    std::vector<std::shared_ptr<GameObject>> allObjects;
+    for (const auto& rootObject : sceneRoots) {
+        GatherAllObjects(rootObject, allObjects);
+    }
+
+    // --- STAGE 2: SERIALIZE ---
+    // Now serialize each object from the flat list.
     std::vector<flatbuffers::Offset<MyEngine::Scene::GameObject>> gameObjectOffsets;
     
     // Recursively serialize all objects starting from the roots
-    for (const auto& rootObject : sceneRoots) {
-        SerializeObjectAndChildren(rootObject, builder, gameObjectOffsets);
-    }
+    for (const auto& objectToSerialize : allObjects) {
+        std::vector<flatbuffers::Offset<MyEngine::Scene::Component>> componentOffsets;
+    
+        // A. MeshRenderer Component
+        if (objectToSerialize->model) {
+            // --- START OF MULTI-MESH FIX ---
+            
+            // 1. Create a vector to hold all the serialized material offsets.
+            std::vector<flatbuffers::Offset<MyEngine::Scene::Material>> materialOffsets;
 
+            // 2. Loop through every mesh in the model.
+            for (auto& mesh : objectToSerialize->model->GetMeshes()) {
+                auto& mat = mesh.m_material;
+
+                // Extract texture paths from this specific material
+                std::string diffusePathStr, specularPathStr, normalPathStr;
+                if (mat->textures.count("material.diffuseSampler")) {
+                    diffusePathStr = mat->textures["material.diffuseSampler"]->getPath();
+                }
+                if (mat->textures.count("material.specularSampler")) {
+                    specularPathStr = mat->textures["material.specularSampler"]->getPath();
+                }
+                if (mat->textures.count("material.normalSampler")) {
+                    normalPathStr = mat->textures["material.normalSampler"]->getPath();
+                }
+                
+                auto diffusePath = builder.CreateString(diffusePathStr);
+                auto specularPath = builder.CreateString(specularPathStr);
+                auto normalPath = builder.CreateString(normalPathStr);
+                
+                // Create a local variable for the Vec3
+                auto fbBaseColor = ToFBVec3(mat->BaseColor);    
+                // Serialize this mesh's material
+                auto fbMaterial = MyEngine::Scene::CreateMaterial(builder, 
+                    &fbBaseColor,
+                    mat->shininess,
+                    diffusePath, specularPath, normalPath);
+
+                // 3. Add the offset of the created material to our vector.
+                materialOffsets.push_back(fbMaterial);
+            }
+            
+            // 4. Create the final FlatBuffers vector of materials.
+            auto fbMaterialsVector = builder.CreateVector(materialOffsets);
+
+            // MeshRenderer
+            auto assetPath = builder.CreateString(objectToSerialize->model->getAssetPath());
+            // 5. Create the MeshRenderer component using the new materials vector.
+            auto fbMeshRenderer = MyEngine::Scene::CreateMeshRenderer(builder, assetPath, fbMaterialsVector);
+
+            // Add to the main component list
+            componentOffsets.push_back(MyEngine::Scene::CreateComponent(builder, MyEngine::Scene::ComponentData_MeshRenderer, fbMeshRenderer.Union()));
+            
+            // --- END OF MULTI-MESH FIX ---
+        }
+
+        // B. Light Component
+        if (auto light = std::dynamic_pointer_cast<Light>(objectToSerialize)) {
+            MyEngine::Scene::LightType fbLightType;
+            
+            // --- START OF LIGHTING FIX ---
+            // Check for the most derived types FIRST.
+            if (dynamic_cast<SpotLight*>(light.get())) {
+                fbLightType = MyEngine::Scene::LightType_Spot;
+            } 
+            else if (dynamic_cast<PointLight*>(light.get())) {
+                fbLightType = MyEngine::Scene::LightType_Point;
+            }
+            // Now, explicitly check for DirectionalLight.
+            else if (dynamic_cast<DirectionalLight*>(light.get())) {
+                fbLightType = MyEngine::Scene::LightType_Directional;
+            }
+            else {
+                // This case should ideally not happen if all light types are handled.
+                // It's good practice to have a fallback or a warning.
+                std::cerr << "Warning: Unknown light type found on GameObject '" << objectToSerialize->name << "'" << std::endl;
+                fbLightType = MyEngine::Scene::LightType_Directional; // Default fallback
+            }
+            // --- END OF LIGHTING FIX ---
+            
+            float constant = 0, linear = 0, quadratic = 0, cutoff = 0, outer_cutoff = 0;
+            if (auto pl = std::dynamic_pointer_cast<PointLight>(light)) {
+                constant = pl->constant; linear = pl->linear; quadratic = pl->quadratic;
+            }
+            if (auto sl = std::dynamic_pointer_cast<SpotLight>(light)) {
+                cutoff = sl->cutOff; outer_cutoff = sl->outerCutOff;
+            }
+            // DirectionalLight has no unique properties to serialize besides what's in the base Light class.
+            // Create local variables for all the Vec3s
+            auto fbAmbient = ToFBVec3(light->ambient);
+            auto fbDiffuse = ToFBVec3(light->diffuse);
+            auto fbSpecular = ToFBVec3(light->specular);
+
+            auto fbLight = MyEngine::Scene::CreateLight(builder, fbLightType,
+                &fbAmbient, &fbDiffuse, &fbSpecular,
+                light->intensity, constant, linear, quadratic, cutoff, outer_cutoff);
+
+            componentOffsets.push_back(MyEngine::Scene::CreateComponent(builder, MyEngine::Scene::ComponentData_Light, fbLight.Union()));
+        }
+
+        // --- 2. Serialize Transform ---
+        // Create local variables
+        auto fbPosition = ToFBVec3(objectToSerialize->position);
+        auto fbRotation = ToFBVec3(objectToSerialize->rotation);
+        auto fbScale = ToFBVec3(objectToSerialize->scale);
+
+        auto fbTransform = MyEngine::Scene::CreateTransform(builder, 
+            &fbPosition,
+            &fbRotation,
+            &fbScale);
+
+        // --- 3. Serialize GameObject ---
+        auto name = builder.CreateString(objectToSerialize->name);
+        auto components = builder.CreateVector(componentOffsets);
+        uint32_t parentId = 0;
+        if (auto parent = objectToSerialize->GetParent().lock()) {
+            parentId = parent->GetID();
+        }
+        
+        auto gameObjectOffset = MyEngine::Scene::CreateGameObject(builder, objectToSerialize->GetID(), parentId, name, fbTransform, components);
+        gameObjectOffsets.push_back(gameObjectOffset);
+
+    }
     auto gameObjectsVector = builder.CreateVector(gameObjectOffsets);
     auto nameString = builder.CreateString("MainScene");
     auto versionString = builder.CreateString("1.0.0");
@@ -58,7 +229,6 @@ bool SceneSerializer::SaveScene(const std::filesystem::path& filePath, const std
     std::cout << "Scene saved successfully to " << filePath << std::endl;
     return true;
 }
-
 void SceneSerializer::SerializeObjectAndChildren(
     std::shared_ptr<GameObject> object,
     flatbuffers::FlatBufferBuilder& builder,
@@ -66,45 +236,7 @@ void SceneSerializer::SerializeObjectAndChildren(
 {
     // --- 1. Serialize Components ---
     std::vector<flatbuffers::Offset<MyEngine::Scene::Component>> componentOffsets;
-    // std::vector<flatbuffers::Offset<MyEngine::Scene::Material>> materialOffsets;
-
-    // A. MeshRenderer Component
-    // if (object->model) {
-    //     // Material
-    //     auto& mesh = object->model->GetMeshes()[0]; // Assuming one material per model for now
-    //     auto& mat = mesh.m_material;
-
-    //     std::string diffusePathStr, specularPathStr, normalPathStr;
-    //      // Check if a texture exists for a given sampler name in our map
-    //     if (mat->textures.count("material.diffuseSampler")) {
-    //         // Get the texture's path. Your Texture class needs a public `path` member.
-    //         diffusePathStr = mat->textures["material.diffuseSampler"]->path;
-    //     }
-    //     if (mat->textures.count("material.specularSampler")) {
-    //         specularPathStr = mat->textures["material.specularSampler"]->path;
-    //     }
-    //     if (mat->textures.count("material.normalSampler")) {
-    //         normalPathStr = mat->textures["material.normalSampler"]->path;
-    //     }
-
-    //     // Create FlatBuffers strings from the paths we found
-    //     auto diffusePath = builder.CreateString(diffusePathStr);
-    //     auto specularPath = builder.CreateString(specularPathStr);
-    //     auto normalPath = builder.CreateString(normalPathStr);
-    //     // In a real system, you would get these paths from your material object
-        
-    //     auto fbMaterial = MyEngine::Scene::CreateMaterial(builder, 
-    //         &ToFBVec3(mat->BaseColor), 
-    //         mat->shininess,
-    //         diffusePath, specularPath, normalPath);
-
-    //     // MeshRenderer
-    //     auto assetPath = builder.CreateString(object->model->getAssetPath());
-    //     auto fbMeshRenderer = MyEngine::Scene::CreateMeshRenderer(builder, assetPath, fbMaterial);
-
-    //     // Add to component list
-    //     componentOffsets.push_back(MyEngine::Scene::CreateComponent(builder, MyEngine::Scene::ComponentData_MeshRenderer, fbMeshRenderer.Union()));
-    // }
+    
     // A. MeshRenderer Component
     if (object->model) {
         // --- START OF MULTI-MESH FIX ---

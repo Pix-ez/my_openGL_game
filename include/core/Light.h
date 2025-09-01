@@ -12,7 +12,7 @@ class Light: public GameObject {
 public:
     //common light properties
     glm::vec3 ambient{0.05f, 0.05f, 0.05f};
-    glm::vec3 diffuse{0.8f, 0.8f, 0.8f};
+    glm::vec3 diffuse{1.0f, 1.0f, 1.0f};
     glm::vec3 specular{1.0f, 1.0f, 1.0f};
     float intensity = 1.0f;
 
@@ -31,7 +31,7 @@ public:
     // Static manager instance
     static LightManager* s_lightManager;
 
-    virtual void OnImGui() override;
+    virtual void OnImGui(bool& isDirty) override;
 
     public:
         // Method to set the manager for all lights to use

@@ -9,6 +9,7 @@
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+#include <limits>
 
 #include "Shader.h"
 #include "Texture.h"
@@ -45,13 +46,16 @@ public:
 
     void setAssetPath(const std::string& path) { m_assetPath = path; }
     const std::string& getAssetPath() const { return m_assetPath; }
+
+    const glm::vec3& GetMinBounds() const { return minBounds; }
+    const glm::vec3& GetMaxBounds() const { return maxBounds; }
    
 
 
     
 private:
    
-     // The model owns its meshes.
+    // The model owns its meshes.
     std::vector<Mesh> m_meshes;
     std::string m_assetPath; //path of model in folders
     // The texture cache now uses the texture path as a key and a shared_ptr for automatic memory management.
@@ -60,6 +64,8 @@ private:
     // std::shared_ptr<Shader> m_defaultShader;
     std::string m_directory;
     bool gammaCorrection;
+    glm::vec3 minBounds;
+    glm::vec3 maxBounds;
     
     // void addMesh(const Mesh&& mesh);
     
@@ -76,6 +82,7 @@ private:
 
     std::shared_ptr<Texture> loadMaterialTexture(aiMaterial* mat, aiTextureType type, int texIndex, Texture::TextureType texType);
 
+    void CalculateBoundingBox();
 };
 
 #endif

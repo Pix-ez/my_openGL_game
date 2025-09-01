@@ -24,5 +24,5 @@ public:
     // Helper to get direction from the GameObject's rotation
     glm::vec3 GetDirection() const;
 
-    virtual void OnImGui() override;
+    virtual void OnImGui(bool &isDirty) override;
 };

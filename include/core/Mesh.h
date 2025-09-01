@@ -40,6 +40,9 @@ public:
     Mesh(Mesh&& other) noexcept;
     Mesh& operator=(Mesh&& other) noexcept;
 
+    const std::vector<Vertex>& GetVertices() const {
+        return m_vertices;
+    }
     
 
     // The Draw function is now much simpler.

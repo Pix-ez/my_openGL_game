@@ -1,11 +1,14 @@
 #pragma once
 
 #include "Model.h"
+#include "PhysicsComponent.h"
+#include "ColliderComponent.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <memory>
 #include <vector>
 #include <string>
+#include <cstdint> 
 
 // GameObject now inherits from enable_shared_from_this
 class GameObject : public std::enable_shared_from_this<GameObject> {
@@ -18,14 +21,21 @@ public:
     glm::vec3 rotation{0.0f};
     glm::vec3 scale{1.0f};
 
+    //physic enable flag
+    bool enable_physics = true;
+    // Add a physics component
+    std::unique_ptr<PhysicsComponent> physics;
+    std::unique_ptr<ColliderComponent> collider;
+
     // Constructor now takes an optional name
-    GameObject(std::shared_ptr<Model> model, std::string name = "GameObject") 
-        : model(model), name(std::move(name)), m_id(0) {}
+    GameObject(std::shared_ptr<Model> model, std::string name = "GameObject", bool enablePhysics = true, bool enableCollider = true);
+    
 
     virtual ~GameObject() = default;
 
     // --- HIERARCHY METHODS ---
     void AddChild(std::shared_ptr<GameObject> child);
+    void RemoveChild(std::shared_ptr<GameObject> child);
     glm::mat4 GetWorldTransformMatrix() const;
 
     // --- GAME LOOP METHODS ---
@@ -37,7 +47,7 @@ public:
     void DrawGeometryOnly(Shader& shader); // The shader is needed here for the model matrix
 
     // --- UI METHOD (for Part 2) ---
-    virtual void OnImGui();
+    virtual void OnImGui(bool& isDirty);
 
     // Public access to children for UI iteration
     const std::vector<std::shared_ptr<GameObject>>& GetChildren() const { return m_children; }
@@ -49,6 +59,7 @@ public:
     std::weak_ptr<GameObject> GetParent() const { return m_parent; }
 
 private:
+    static uint32_t s_nextID;
     uint32_t m_id;
     // Hierarchy relationships
     std::weak_ptr<GameObject> m_parent;

@@ -111,6 +111,8 @@ void RenderNotifications() {
         ++it;
     }
 }
+
+
 // For the shadow pass
 void RenderSceneGeometryOnly(Shader& shader, const std::vector<std::shared_ptr<GameObject>>& sceneRoots) {
     for (const auto& obj : sceneRoots) {
@@ -123,6 +125,114 @@ void RenderSceneWithMaterial(Shader& shader, const std::vector<std::shared_ptr<G
     for (const auto& obj : sceneRoots) {
         obj->DrawWithMaterial(shader, textureUnit);
     }
+}
+
+void RemoveObjectFromScene(std::shared_ptr<GameObject> object, std::vector<std::shared_ptr<GameObject>>& roots) {
+    if (!object) return;
+
+    // First, check if the object has a parent
+    if (auto parent_ptr = object->GetParent().lock()) {
+        // If it has a parent, tell the parent to remove it from its children list
+        parent_ptr->RemoveChild(object);
+    } else {
+        // If it has no parent, it must be a root object. Remove it from the roots list.
+        // The "erase-remove idiom" is the standard way to do this in C++.
+        roots.erase(std::remove(roots.begin(), roots.end(), object), roots.end());
+    }
+}
+
+ // A simple struct to hold the state we want to save/restore
+    struct GameObjectState {
+        glm::vec3 position;
+        glm::vec3 rotation;
+        glm::vec3 scale;
+    };
+
+    // State variables for the editor
+    bool m_isPlaying = false;
+    std::unordered_map<uint32_t, GameObjectState> m_editorStateSnapshot;
+
+    // Create the scene list (only for root objects)
+    ProjectManager projectManager;
+    std::vector<std::shared_ptr<GameObject>> sceneRoots;
+
+// Traverses the hierarchy from a given node and saves its state
+void SaveStateRecursive(std::shared_ptr<GameObject> go, std::unordered_map<uint32_t, GameObjectState>& snapshot) {
+    if (!go) return;
+
+    GameObjectState state;
+    state.position = go->position;
+    state.rotation = go->rotation;
+    state.scale = go->scale;
+    snapshot[go->GetID()] = state;
+
+    for (const auto& child : go->GetChildren()) {
+        SaveStateRecursive(child, snapshot);
+    }
+}
+
+// Traverses the hierarchy and restores state from the snapshot
+void RestoreStateRecursive(std::shared_ptr<GameObject> go, const std::unordered_map<uint32_t, GameObjectState>& snapshot) {
+    if (!go) return;
+
+    auto it = snapshot.find(go->GetID());
+    if (it != snapshot.end()) {
+        const GameObjectState& state = it->second;
+        go->position = state.position;
+        go->rotation = state.rotation;
+        go->scale = state.scale;
+
+        // Also reset runtime physics properties to a neutral state
+        if (go->physics) {
+            go->physics->velocity = glm::vec3(0.0f);
+            go->physics->acceleration = glm::vec3(0.0f);
+        }
+    }
+
+    for (const auto& child : go->GetChildren()) {
+        RestoreStateRecursive(child, snapshot);
+    }
+}
+
+void GetAllColliders(std::shared_ptr<GameObject> go, std::vector<ColliderComponent*>& colliders) {
+    if (!go) return;
+
+    // Add this object's collider to the list if it exists
+    if (go->collider) {
+        colliders.push_back(go->collider.get());
+    }
+
+    // Recursively call for all children
+    for (const auto& child : go->GetChildren()) {
+        GetAllColliders(child, colliders);
+    }
+}
+
+// --- Main Control Functions ---
+
+void StartSimulation() {
+    if (m_isPlaying) return;
+
+    m_editorStateSnapshot.clear();
+    // Iterate through all root objects and recursively save their state
+    for (const auto& root : sceneRoots) {
+        SaveStateRecursive(root, m_editorStateSnapshot);
+    }
+
+    m_isPlaying = true;
+    printf("Simulation Started.\n");
+}
+
+void StopSimulation() {
+    if (!m_isPlaying) return;
+
+    // Iterate through all root objects and recursively restore their state
+    for (const auto& root : sceneRoots) {
+        RestoreStateRecursive(root, m_editorStateSnapshot);
+    }
+
+    m_isPlaying = false;
+    printf("Simulation Stopped.\n");
 }
 // renderQuad() renders a 1x1 XY quad in NDC
 // -----------------------------------------
@@ -307,11 +417,13 @@ int main(int argc, char *argv[]){
     // 2. Tell the base Light class about it
     Light::SetLightManager(&lightManager);
 
-    // Create the scene list (only for root objects)
-    ProjectManager projectManager;
-    std::vector<std::shared_ptr<GameObject>> sceneRoots;
+   
     std::weak_ptr<GameObject> selectedObject;
-    
+    bool isSceneDirty = false;
+bool showExitPopup = false;
+ 
+    std::shared_ptr<GameObject> objectToDelete = nullptr; // A pointer to hold the object we want to delete
+
     auto mainShader = std::make_shared<Shader>(vertPath, fragPath);
     auto depthShader = std::make_shared<Shader>(depth_vert, depth_frag);
     auto debugQuadShader = std::make_shared<Shader>(quad_vert, quad_frag);
@@ -586,6 +698,13 @@ sceneRoots.push_back(planeObject);
             fpsCounter = 0;
         }
         while (SDL_PollEvent(&event)){
+            if (event.type == SDL_EVENT_QUIT) {
+                if (isSceneDirty) {
+                    showExitPopup = true;
+                } else {
+                    is_running = false;
+                }
+            }
 
             inputController.BeginFrame();
 
@@ -648,10 +767,81 @@ sceneRoots.push_back(planeObject);
 
          //Game Loop
         // Automatically update all objects in the scene
-        for (const auto& obj : sceneRoots) {
-            obj->Update(deltaTime);
-        }
+        // for (const auto& obj : sceneRoots) {
+        //     obj->Update(deltaTime);
+        // }
 
+        if (m_isPlaying) {
+            for (const auto& root : sceneRoots) {
+                    root->Update(deltaTime); // This call is recursive by design
+                }
+            // --- STEP 2: GATHER COLLIDERS ---
+            // Create a flat list of all colliders in the scene for easy checking.
+            std::vector<ColliderComponent*> allColliders;
+            for (const auto& root : sceneRoots) {
+                GetAllColliders(root, allColliders);
+            }
+
+
+            if (!allColliders.empty()){
+                // This will print every frame, but it's useful for a quick test
+                std::cout << "Collision check loop running with " << allColliders.size() << " colliders." << std::endl; 
+            }
+            // --- STEP 3: COLLISION CHECK AND RESPONSE ---
+            // Check every collider against every other collider.
+            // The j = i + 1 is an optimization to avoid checking the same pair twice.
+            for (size_t i = 0; i < allColliders.size(); ++i) {
+                for (size_t j = i + 1; j < allColliders.size(); ++j) {
+                    ColliderComponent* a = allColliders[i];
+                    ColliderComponent* b = allColliders[j];
+
+                            // --- NEW ENHANCED DEBUG PRINT ---
+                printf("Checking: '%s' vs '%s'\n", a->m_owner->name.c_str(), b->m_owner->name.c_str());
+                printf("  '%s' Min(%.2f, %.2f, %.2f) Max(%.2f, %.2f, %.2f)\n", 
+                    a->m_owner->name.c_str(), a->worldMin.x, a->worldMin.y, a->worldMin.z, a->worldMax.x, a->worldMax.y, a->worldMax.z);
+                printf("  '%s' Min(%.2f, %.2f, %.2f) Max(%.2f, %.2f, %.2f)\n", 
+                    b->m_owner->name.c_str(), b->worldMin.x, b->worldMin.y, b->worldMin.z, b->worldMax.x, b->worldMax.y, b->worldMax.z);
+                // --- END OF NEW DEBUG PRINT ---
+
+                    // Don't check for collisions between two static objects
+                    bool aIsStatic = a->m_owner->physics ? a->m_owner->physics->isStatic : true;
+                    bool bIsStatic = b->m_owner->physics ? b->m_owner->physics->isStatic : true;
+                    if (aIsStatic && bIsStatic) {
+                        continue;
+                    }
+
+                    // Perform the AABB collision check
+                    if (ColliderComponent::CheckCollision(*a, *b)) {
+                        // A collision has occurred!
+                        std::cout << "!!!!!!!! COLLISION DETECTED between " 
+                                << a->m_owner->name << " and " << b->m_owner->name 
+                                << " !!!!!!!!" << std::endl;
+
+                        // --- COLLISION RESPONSE LOGIC ---
+                        // Identify which object is dynamic and which is static
+                        ColliderComponent* dynamicCollider = aIsStatic ? b : a;
+                        ColliderComponent* staticCollider = aIsStatic ? a : b;
+                        
+                        // For this simple case, we assume one is static and one is dynamic.
+                        // A more advanced engine would handle dynamic-dynamic collisions.
+
+                        // Calculate how much the dynamic object has penetrated the static one on the Y-axis
+                        float penetrationY = staticCollider->worldMax.y - dynamicCollider->worldMin.y;
+                        
+                        // Move the dynamic object straight up by the penetration amount to resolve the collision
+                        dynamicCollider->m_owner->position.y += penetrationY;
+
+                        // Stop the object's downward velocity so it doesn't try to fall through again next frame
+                        if (dynamicCollider->m_owner->physics->velocity.y < 0) {
+                            dynamicCollider->m_owner->physics->velocity.y = 0;
+                        }
+
+                        // IMPORTANT: After moving the object, we must update its collider's world bounds immediately
+                        dynamicCollider->Update();
+                    }
+                }
+            }
+        }
         // Start the Dear ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
@@ -689,6 +879,19 @@ sceneRoots.push_back(planeObject);
             ImGui::End();
         }
 
+
+            // Render Scene Controls (Play/Stop button)
+        ImGui::Begin("Scene Controls");
+        if (m_isPlaying) {
+            if (ImGui::Button("Stop")) {
+                StopSimulation();
+            }
+        } else {
+            if (ImGui::Button("Play")) {
+                StartSimulation();
+            }
+        }
+        ImGui::End();
         // --- MAIN MENU BAR ---
 if (ImGui::BeginMainMenuBar()) {
     if (ImGui::BeginMenu("File")) {
@@ -700,6 +903,7 @@ if (ImGui::BeginMainMenuBar()) {
                     // Success! Clear the old scene.
                     selectedObject.reset();
                     sceneRoots.clear();
+                    isSceneDirty = false; 
                 } else {
                     tinyfd_messageBox("Error", "Could not create project. The folder must be empty.", "ok", "error", 1);
                 }
@@ -715,6 +919,7 @@ if (ImGui::BeginMainMenuBar()) {
                     // Project is loaded, now load its scene
                     selectedObject.reset();
                     projectManager.LoadScene(sceneRoots);
+                    isSceneDirty = false; 
                 } else {
                     tinyfd_messageBox("Error", "Could not load the selected project file.", "ok", "error", 1);
                 }
@@ -735,8 +940,15 @@ if (ImGui::BeginMainMenuBar()) {
 
         ImGui::Separator();
         
+        // In the "File" menu
         if (ImGui::MenuItem("Exit")) {
-            is_running = false;
+            if (isSceneDirty) {
+                // If there are unsaved changes, show the popup.
+                showExitPopup = true;
+            } else {
+                // If the scene is clean, exit immediately.
+                is_running = false;
+            }
         }
         ImGui::EndMenu();
     }
@@ -835,6 +1047,19 @@ if (ImGui::BeginMainMenuBar()) {
                 selectedObject = node;
             }
 
+
+            // --- START OF DELETE FIX ---
+            // This creates a context menu that opens on right-click for THIS tree node.
+            if (ImGui::BeginPopupContextItem()) {
+                ImGui::Text("Actions for %s", node->name.c_str());
+                ImGui::Separator();
+                if (ImGui::MenuItem("Delete")) {
+                    // Don't delete immediately! Just mark it for deletion.
+                    objectToDelete = node; 
+                }
+                // You could add "Duplicate", "Add Child", etc. here in the future
+                ImGui::EndPopup();
+            }
             // If the node is open, recurse for all children
             if (node_open) {
                 for (const auto& child : node->GetChildren()) {
@@ -851,19 +1076,99 @@ if (ImGui::BeginMainMenuBar()) {
 
         ImGui::End();
 
+        if (objectToDelete) {
+            // If the object to delete was the selected one, unselect it.
+            if (selectedObject.lock() == objectToDelete) {
+                selectedObject.reset();
+            }
+            
+            // This is a complex operation. We need a function to handle it.
+            // Let's assume you create a helper function like this:
+            RemoveObjectFromScene(objectToDelete, sceneRoots);
 
+            // Clear the pointer so we don't delete it again next frame.
+            objectToDelete = nullptr;
+            // You should set your "scene dirty" flag here.
+        }
         // --- 2. Inspector Window ---
         ImGui::Begin("Inspector");
 
         if (auto obj = selectedObject.lock()) {
-            ImGui::Text("Name: %s", obj->name.c_str());
+            // --- START OF RENAMING FIX ---
+            
+            // Create a buffer to hold the name for editing.
+            // ImGui's InputText works with C-style char arrays.
+            char nameBuffer[128];
+            // Copy the object's name into the buffer. strncpy is safer than strcpy.
+            strncpy(nameBuffer, obj->name.c_str(), sizeof(nameBuffer));
+            // Ensure null termination, just in case the name was too long.
+            nameBuffer[sizeof(nameBuffer) - 1] = 0;
+
+            // Create the input text field.
+            ImGui::Text("Name");
+            ImGui::SameLine();
+            if (ImGui::InputText("##Name", nameBuffer, sizeof(nameBuffer), ImGuiInputTextFlags_EnterReturnsTrue)) {
+                // This block executes when the user presses Enter.
+                obj->name = std::string(nameBuffer);
+                //set dirty flag 
+                isSceneDirty = true;
+            }
+            // Also update on losing focus (clicking away)
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                obj->name = std::string(nameBuffer);
+                isSceneDirty = true;
+            }
+            // "##Name" makes the label invisible, since we already have a "Name" text widget.
+            
+            // --- END OF RENAMING FIX ---
+            
             ImGui::Separator();
-            obj->OnImGui();
+            obj->OnImGui(isSceneDirty);
         } else {
             ImGui::Text("No object selected.");
         }
 
         ImGui::End();
+
+            if (showExitPopup) {
+            ImGui::OpenPopup("Unsaved Changes");
+        }
+
+        // Always center this window when it appears
+        ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+        if (ImGui::BeginPopupModal("Unsaved Changes", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("You have unsaved changes. Are you sure you want to exit?\nAll unsaved work will be lost.\n\n");
+            ImGui::Separator();
+
+            if (ImGui::Button("Save and Exit", ImVec2(120, 0))) {
+                if (projectManager.SaveScene(sceneRoots)) {
+                    is_running = false; // Exit after successful save
+                } else {
+                    // Handle save error if necessary
+                    AddNotification("Error: Could not save scene!");
+                }
+                ImGui::CloseCurrentPopup();
+                showExitPopup = false;
+            }
+            ImGui::SetItemDefaultFocus();
+            ImGui::SameLine();
+
+            if (ImGui::Button("Exit Without Saving", ImVec2(150, 0))) {
+                is_running = false; // User chose to lose work
+                ImGui::CloseCurrentPopup();
+                showExitPopup = false;
+            }
+            ImGui::SameLine();
+
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+                ImGui::CloseCurrentPopup();
+                showExitPopup = false; // User cancelled, just close the popup
+            }
+            ImGui::EndPopup();
+        }
+
         // Rendering
         RenderNotifications();
         ImGui::Render();

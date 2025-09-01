@@ -25,13 +25,13 @@ glm::vec3 DirectionalLight::GetDirection() const {
     return glm::normalize(front);
 }
 
-void DirectionalLight::OnImGui()
+void DirectionalLight::OnImGui(bool &isDirty)
 {
-    Light::OnImGui();
+    Light::OnImGui(isDirty);
     ImGui::Separator();
 
 
     ImGui::Text("Direction is controlled by Rotation.");
-    ImGui::SliderFloat3("Rotation (deg)", &direction.x, 0.0f, 360.0f);
+    if(ImGui::SliderFloat3("Rotation (deg)", &direction.x, 0.0f, 360.0f)) { isDirty = true; }
     
 }
